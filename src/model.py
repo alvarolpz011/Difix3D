@@ -4,11 +4,17 @@ import sys
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
+import os
+import sys
+
+import requests
 import torch
 from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel
 from diffusers import AutoencoderKL, DDPMScheduler, DDIMScheduler
 from peft import LoraConfig
+from tqdm import tqdm
+
 p = "src/"
 sys.path.append(p)
 from einops import rearrange, repeat
@@ -114,13 +120,27 @@ def save_ckpt(net_difix, optimizer, outf):
 
 
 class Difix(torch.nn.Module):
-    def __init__(self, pretrained_name=None, pretrained_path=None, ckpt_folder="checkpoints", lora_rank_vae=4, mv_unet=False, timestep=999):
+    def __init__(self, pretrained_name=None, pretrained_path=None, ckpt_folder="checkpoints", lora_rank_vae=4, mv_unet=False, timestep=999, depth_conditioning=False):
         super().__init__()
         self.tokenizer = AutoTokenizer.from_pretrained("stabilityai/sd-turbo", subfolder="tokenizer")
         self.text_encoder = CLIPTextModel.from_pretrained("stabilityai/sd-turbo", subfolder="text_encoder").cuda()
         self.sched = make_1step_sched()
 
         vae = AutoencoderKL.from_pretrained("stabilityai/sd-turbo", subfolder="vae")
+        if depth_conditioning:
+            old_conv = vae.encoder.conv_in
+            new_conv = torch.nn.Conv2d(
+                old_conv.in_channels + 1,
+                old_conv.out_channels,
+                kernel_size=old_conv.kernel_size,
+                stride=old_conv.stride,
+                padding=old_conv.padding,
+            )
+            with torch.no_grad():
+                new_conv.weight[:, : old_conv.in_channels] = old_conv.weight
+                new_conv.weight[:, -1:] = 0
+                new_conv.bias = torch.nn.Parameter(old_conv.bias.clone())
+            vae.encoder.conv_in = new_conv
         vae.encoder.forward = my_vae_encoder_fwd.__get__(vae.encoder, vae.encoder.__class__)
         vae.decoder.forward = my_vae_decoder_fwd.__get__(vae.decoder, vae.decoder.__class__)
         # add the skip connection convs
@@ -185,6 +205,7 @@ class Difix(torch.nn.Module):
         self.vae.decoder.gamma = 1
         self.timesteps = torch.tensor([timestep], device="cuda").long()
         self.text_encoder.requires_grad_(False)
+        self.depth_conditioning = depth_conditioning
 
         # print number of trainable parameters
         print("="*50)

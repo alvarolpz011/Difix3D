@@ -62,35 +62,37 @@ output_image.save("example_output.png")
 
 #### Data Preparation
 
-Prepare your dataset in the following JSON format:
+You can still provide a JSON file in the existing format (see `data/data.json` above), but for NeRF-style folders (e.g., `Lego/`, `Drums/`, `Ship/`) you can point `--dataset_path` at the parent directory and the loader will:
 
-```json
-{
-  "train": {
-    "{data_id}": {
-      "image": "{PATH_TO_IMAGE}",
-      "target_image": "{PATH_TO_TARGET_IMAGE}",
-      "ref_image": "{PATH_TO_REF_IMAGE}",
-      "prompt": "remove degradation"
-    }
-  },
-  "test": {
-    "{data_id}": {
-      "image": "{PATH_TO_IMAGE}",
-      "target_image": "{PATH_TO_TARGET_IMAGE}",
-      "ref_image": "{PATH_TO_REF_IMAGE}",
-      "prompt": "remove degradation"
-    }
-  }
-}
+* Look for a `test/` folder inside each scene directory and pick files named `r_*.png`.
+* Use a 90/10 train/test split from those files.
+* Pair RGBs with matching depths named `r_0_depth_0001.png` when `--use_depth_conditioning` is enabled.
+
+Example directory layout with multiple scenes side by side:
+
 ```
+/data/nerf_scenes/
+├── Lego/
+│   └── test/
+│       ├── r_0.png
+│       ├── r_0_depth_0001.png
+│       ├── r_1.png
+│       ├── r_1_depth_0001.png
+│       └── ...
+├── Drums/
+│   └── test/ ...
+└── Ship/
+    └── test/ ...
+```
+
+Pass `/data/nerf_scenes` to `--dataset_path` to automatically build the splits.
 
 #### Single GPU
 
 ```bash
 accelerate launch --mixed_precision=bf16 src/train_difix.py \
     --output_dir=./outputs/difix/train \
-    --dataset_path="data/data.json" \
+    --dataset_path="/data/nerf_scenes" \
     --max_train_steps 10000 \
     --resolution=512 --learning_rate 2e-5 \
     --train_batch_size=1 --dataloader_num_workers 8 \
@@ -99,6 +101,14 @@ accelerate launch --mixed_precision=bf16 src/train_difix.py \
     --lambda_lpips 1.0 --lambda_l2 1.0 --lambda_gram 1.0 --gram_loss_warmup_steps 2000 \
     --report_to "wandb" --tracker_project_name "difix" --tracker_run_name "train" --timestep 199
 ```
+
+To train the RGB-only baseline, omit `--use_depth_conditioning`. To train the depth-conditioned variant, add:
+
+```bash
+    --use_depth_conditioning
+```
+
+Run the two commands separately (with distinct `--output_dir`/`--tracker_run_name` values) to produce two sets of checkpoints and logs. Validation PSNR/LPIPS/SSIM are logged per run; compare the metrics across runs to quantify the depth benefit.
 
 #### Multipe GPUs
 
