@@ -51,9 +51,10 @@ def main(args):
         os.makedirs(os.path.join(args.output_dir, "eval"), exist_ok=True)
 
     net_difix = Difix(
-        lora_rank_vae=args.lora_rank_vae, 
+        lora_rank_vae=args.lora_rank_vae,
         timestep=args.timestep,
         mv_unet=args.mv_unet,
+        depth_conditioning=args.use_depth_conditioning,
     )
     net_difix.set_train()
 
@@ -98,9 +99,21 @@ def main(args):
         num_training_steps=args.max_train_steps * accelerator.num_processes,
         num_cycles=args.lr_num_cycles, power=args.lr_power,)
 
-    dataset_train = PairedDataset(dataset_path=args.dataset_path, split="train", tokenizer=net_difix.tokenizer)
+    dataset_train = PairedDataset(
+        dataset_path=args.dataset_path,
+        split="train",
+        tokenizer=net_difix.tokenizer,
+        default_prompt=args.prompt if args.prompt is not None else "remove degradation",
+        use_depth_conditioning=args.use_depth_conditioning,
+    )
     dl_train = torch.utils.data.DataLoader(dataset_train, batch_size=args.train_batch_size, shuffle=True, num_workers=args.dataloader_num_workers)
-    dataset_val = PairedDataset(dataset_path=args.dataset_path, split="test", tokenizer=net_difix.tokenizer)
+    dataset_val = PairedDataset(
+        dataset_path=args.dataset_path,
+        split="test",
+        tokenizer=net_difix.tokenizer,
+        default_prompt=args.prompt if args.prompt is not None else "remove degradation",
+        use_depth_conditioning=args.use_depth_conditioning,
+    )
     random.Random(42).shuffle(dataset_val.img_names)
     dl_val = torch.utils.data.DataLoader(dataset_val, batch_size=1, shuffle=False, num_workers=0)
 
@@ -290,6 +303,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_image_prep", default="resized_crop_512", type=str)
     parser.add_argument("--test_image_prep", default="resized_crop_512", type=str)
     parser.add_argument("--prompt", default=None, type=str)
+    parser.add_argument("--use_depth_conditioning", action="store_true")
 
     # validation eval args
     parser.add_argument("--eval_freq", default=100, type=int)
